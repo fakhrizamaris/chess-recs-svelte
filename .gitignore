@@ -1,0 +1,35 @@
+# General
+.DS_Store
+.vscode/
+
+# Python (services-api)
+services-api/.venv/
+services-api/__pycache__/
+services-api/*.pyc
+services-api/.env
+services-api/models/*.h5
+services-api/models/*.keras
+services-api/models/*.pkl
+# Exception for small example model if needed, but usually ignore models
+!services-api/models/content_based_model.pkl
+!services-api/models/collaborative_data.pkl
+# Wait, user might want models if they are needed for app.
+# If they are >100MB, github blocks them.
+# The user's models are < 20MB, so it's safe to include them for now.
+# Re-adjusting to include the specific models we use:
+!services-api/models/collaborative_model.keras
+
+# Rust (backend-rust)
+backend-rust/target/
+backend-rust/Cargo.lock
+backend-rust/.env
+
+# Node/Svelte (frontend-svelte)
+frontend-svelte/node_modules/
+frontend-svelte/.svelte-kit/
+frontend-svelte/build/
+frontend-svelte/.env
+frontend-svelte/.npmrc
+
+# Logs
+*.log
