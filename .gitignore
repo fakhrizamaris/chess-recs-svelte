@@ -21,7 +21,7 @@ services-api/models/*.pkl
 
 # Rust (backend-rust)
 backend-rust/target/
-backend-rust/Cargo.lock
+
 backend-rust/.env
 
 # Node/Svelte (frontend-svelte)
