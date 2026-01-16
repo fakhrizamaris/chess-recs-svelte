@@ -1,0 +1,85 @@
+name: Deploy Backend to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'services-api/**'
+      - 'backend-rust/**'
+      - '.github/workflows/deploy-backend.yml'
+
+env:
+  PROJECT_ID: chess-recs-484510
+  REGION: asia-southeast1
+  REPO_NAME: chess-recs-repo
+
+jobs:
+  deploy-ai-service:
+    runs-on: ubuntu-latest
+    if: false # Disable AI service auto-deploy temporarily (saves time/cost if not changed)
+    # Remove 'if: false' to enable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: 'auth'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v2'
+
+      - name: 'Configure Docker'
+        run: |
+          gcloud auth configure-docker asia-southeast1-docker.pkg.dev
+
+      - name: 'Build and Push AI Service'
+        run: |
+          cd services-api
+          docker build -t asia-southeast1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/ai-service:${{ github.sha }} .
+          docker push asia-southeast1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/ai-service:${{ github.sha }}
+
+      - name: 'Deploy to Cloud Run'
+        uses: 'google-github-actions/deploy-cloudrun@v2'
+        with:
+          service: 'ai-service'
+          image: 'asia-southeast1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/ai-service:${{ github.sha }}'
+          region: '${{ env.REGION }}'
+          flags: '--allow-unauthenticated --memory=2Gi'
+
+  deploy-api-gateway:
+    runs-on: ubuntu-latest
+    needs: deploy-ai-service # Wait for AI service deploy (optional dependency)
+    # remove 'if: always()' if you want it to fail if ai-service fails
+    if: always()
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: 'auth'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v2'
+
+      - name: 'Configure Docker'
+        run: |
+          gcloud auth configure-docker asia-southeast1-docker.pkg.dev
+
+      - name: 'Build and Push API Gateway'
+        run: |
+          cd backend-rust
+          docker build -t asia-southeast1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/api-gateway:${{ github.sha }} .
+          docker push asia-southeast1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/api-gateway:${{ github.sha }}
+
+      - name: 'Deploy to Cloud Run'
+        uses: 'google-github-actions/deploy-cloudrun@v2'
+        with:
+          service: 'api-gateway'
+          image: 'asia-southeast1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/api-gateway:${{ github.sha }}'
+          region: '${{ env.REGION }}'
+          flags: '--allow-unauthenticated --set-env-vars AI_SERVICE_URL=https://ai-service-245846929382.asia-southeast1.run.app'

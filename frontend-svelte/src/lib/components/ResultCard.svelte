@@ -3,21 +3,17 @@
   import { quintOut } from 'svelte/easing';
   import type { RecommendationResponse } from '$lib/api/client';
   import { Star, ChevronDown, ChevronUp } from 'lucide-svelte';
+  import ChessBoard from './ChessBoard.svelte';
 
   export let result: RecommendationResponse;
   export let index: number;
 
   let isExpanded = false;
   let isHovered = false;
-  let imageLoaded = false;
-  let imageError = false;
 
   $: delay = index * 100;
   $: scorePercent = Math.round(result.hybrid_score * 100);
-  
-  // Generate Lichess board image URL
-  $: boardImageUrl = `https://lichess1.org/export/fen.gif?fen=${encodeURIComponent(result.fen)}&theme=brown&piece=cburnett&size=360`;
-  
+
   function toggleExpand() {
     isExpanded = !isExpanded;
   }
@@ -34,7 +30,7 @@
 >
   <!-- Score badge -->
   <div
-    class="absolute -top-3 -right-3 w-16 h-16 rounded-xl flex items-center justify-center z-10
+    class="absolute -top-1.5 -right-3 w-16 h-16 rounded-xl flex items-center justify-center z-10
            bg-gradient-to-br from-primary-500 to-primary-600
            shadow-lg transition-transform duration-300"
     class:rotate-3={isHovered}
@@ -82,35 +78,12 @@
     >
       <div class="p-5 space-y-4">
         
-        <!-- Chess Board Image -->
-        <div class="relative glass rounded-lg overflow-hidden bg-white/5">
-          {#if !imageLoaded && !imageError}
-            <!-- Loading skeleton -->
-            <div class="aspect-square w-full animate-pulse bg-white/10 flex items-center justify-center">
-              <div class="text-white/40 text-sm">Loading board...</div>
-            </div>
-          {/if}
-
-          {#if imageError}
-            <!-- Error state -->
-            <div class="aspect-square w-full bg-white/5 flex items-center justify-center">
-              <div class="text-red-400 text-sm flex flex-col items-center gap-2">
-                <span>⚠️ Failed to load board</span>
-                <span class="text-xs text-white/30 truncate max-w-[200px]">{result.fen}</span>
-              </div>
-            </div>
-          {:else}
-            <img 
-              src={boardImageUrl}
-              alt="Chess board for {result.opening_name}"
-              loading="lazy"
-              on:load={() => imageLoaded = true}
-              on:error={() => { imageLoaded = true; imageError = true; }}
-              class="w-full h-auto"
-              class:hidden={!imageLoaded}
-            />
-          {/if}
-        </div>
+        <!-- Chess Board - Local Rendering (No External API) -->
+        {#if result.fen}
+          <div class="flex justify-center glass rounded-lg p-3">
+            <ChessBoard fen={result.fen} size={280} />
+          </div>
+        {/if}
 
         <!-- Opening Moves -->
         {#if result.moves}

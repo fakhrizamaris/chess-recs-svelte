@@ -1,0 +1,23 @@
+# Exclude virtual environment
+.venv/
+venv/
+env/
+
+# Exclude python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Exclude git
+.git/
+.gitignore
+
+# Exclude IDE files
+.vscode/
+.idea/
+
+# Exclude Docker files (not needed for context if using Dockerfile)
+docker-compose.yml
+
+# Keep models and data, but exclude raw non-essential data if any
+# (Add specific exclusions here if data folder has temp files)

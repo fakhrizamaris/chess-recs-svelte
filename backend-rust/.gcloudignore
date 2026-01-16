@@ -1,0 +1,15 @@
+# Exclude build artifacts
+target/
+**/*.rs.bk
+
+# Exclude IDE files
+.vscode/
+.idea/
+*.swp
+
+# Exclude git
+.git/
+.gitignore
+
+# Exclude Docker files (not needed for context if using Dockerfile)
+docker-compose.yml

@@ -3,6 +3,7 @@
   import { fly, scale } from 'svelte/transition';
   import { quintOut } from 'svelte/easing';
   import { onMount } from 'svelte';
+  import { endpoints } from '$lib/api/client';
 
   export let selected: string[] = [];
   export let maxSelections: number = 3;
@@ -15,7 +16,7 @@
   // Load openings from API
   onMount(async () => {
     try {
-      const response = await fetch('http://localhost:8001/openings');
+      const response = await fetch(endpoints.openings());
       const data = await response.json();
       openings = data.openings || [];
       isLoading = false;
@@ -106,7 +107,7 @@
     <div
       in:fly={{ y: -10, duration: 200 }}
       out:fly={{ y: -10, duration: 150 }}
-      class="absolute z-50 w-full mt-1 glass-card rounded-xl max-h-80 overflow-y-auto"
+      class="absolute z-50 w-full mt-1 glass-dropdown rounded-xl max-h-80 overflow-y-auto"
     >
       <div class="p-2 space-y-1">
         {#each filtered as opening (opening)}
@@ -127,7 +128,7 @@
   {:else if isOpen && searchQuery && filtered.length === 0}
     <div
       in:fly={{ y: -10, duration: 200 }}
-      class="absolute z-50 w-full mt-1 glass-card rounded-xl p-4"
+      class="absolute z-50 w-full mt-1 glass-dropdown rounded-xl p-4"
     >
       <p class="text-white/60 text-sm text-center">
         No openings found for "{searchQuery}"

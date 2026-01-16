@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { config, endpoints } from './config';
 
 // Schema validation - UPDATED TO MATCH PYTHON RESPONSE
 export const RecommendationRequestSchema = z.object({
@@ -23,8 +24,8 @@ export const RecommendationResponseSchema = z.object({
 export type RecommendationRequest = z.infer<typeof RecommendationRequestSchema>;
 export type RecommendationResponse = z.infer<typeof RecommendationResponseSchema>;
 
-// API Client
-const API_BASE = 'http://localhost:3000';
+// Re-export config for convenience
+export { config, endpoints };
 
 export async function getRecommendations(
 	request: RecommendationRequest
@@ -32,7 +33,7 @@ export async function getRecommendations(
 	// Validate input
 	const validated = RecommendationRequestSchema.parse(request);
 
-	const response = await fetch(`${API_BASE}/api/recommend`, {
+	const response = await fetch(endpoints.recommend(), {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(validated)

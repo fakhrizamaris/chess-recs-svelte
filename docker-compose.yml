@@ -1,0 +1,67 @@
+# ============================================
+# ChessRecs NextGen - Docker Compose
+# Local development & testing
+# ============================================
+
+version: '3.8'
+
+services:
+  # Frontend (SvelteKit)
+  frontend:
+    build:
+      context: ./frontend-svelte
+      dockerfile: Dockerfile
+      args:
+        PUBLIC_API_GATEWAY_URL: http://localhost:3000
+        PUBLIC_AI_SERVICE_URL: http://localhost:8001
+    ports:
+      - '5173:5173'
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - api-gateway
+      - ai-service
+    networks:
+      - chessrecs-network
+
+  # Rust API Gateway
+  api-gateway:
+    build:
+      context: ./backend-rust
+      dockerfile: Dockerfile
+    ports:
+      - '3000:3000'
+    environment:
+      - RUST_LOG=info
+      - AI_SERVICE_URL=http://ai-service:8001
+    depends_on:
+      ai-service:
+        condition: service_healthy
+    networks:
+      - chessrecs-network
+
+  # Python AI Service
+  ai-service:
+    build:
+      context: ./services-api
+      dockerfile: Dockerfile
+    ports:
+      - '8001:8001'
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TF_ENABLE_ONEDNN_OPTS=0
+    volumes:
+      - ./services-api/models:/app/models:ro
+      - ./services-api/data:/app/data:ro
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:8001/health']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - chessrecs-network
+
+networks:
+  chessrecs-network:
+    driver: bridge

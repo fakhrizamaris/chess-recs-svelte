@@ -15,16 +15,26 @@ def moves_to_fen(moves_str: str) -> str:
             # Skip move numbers (like "1.", "20.")
             if move.endswith('.'):
                 continue
+            # Skip empty strings
+            if not move or move.isspace():
+                continue
                 
             try:
                 board.push_san(move)
-            except:
-                # If move is invalid, stop processing
+            except Exception as e:
+                # Log error for debugging but continue
+                print(f"⚠️ Failed to parse move '{move}': {e}")
+                # Return current board state (partial opening)
                 break
-        return board.fen()
+        
+        fen = board.fen()
+        print(f"✅ Generated FEN: {fen}")  # Debug log
+        return fen
     except Exception as e:
         # If any error, return starting position
+        print(f"❌ FEN error: {e}")
         return chess.Board().fen()
+
 
 class ChessRecommender:
     def __init__(self):
@@ -34,6 +44,11 @@ class ChessRecommender:
         self.collaborative_model = None
         self.hybrid_model = None
         self.is_ready = False
+        # Cached data for performance
+        self._opening_complexity_cache = None
+        self._encoded_openings_cache = None
+        # Lazy cache for CF predictions by rating bucket (key: rating_bucket, value: DataFrame)
+        self._cf_prediction_cache = {}
 
     def load_resources(self):
         """Memuat semua model dan dataset ke memori sekali saja saat startup."""
@@ -72,11 +87,53 @@ class ChessRecommender:
             #    self.hybrid_model = pickle.load(f)
             self.hybrid_model = None  # Not used in current implementation
 
+            # === PERFORMANCE OPTIMIZATION ===
+            # 1. Pre-compute opening complexity (cache)
+            print("⏳ Pre-computing opening complexity...")
+            self._opening_complexity_cache = self._compute_opening_complexity()
+            
+            # 2. Pre-cache encoded openings
+            opening_encoder = self.collaborative_data['opening_encoder']
+            self._encoded_openings_cache = np.arange(len(opening_encoder.classes_))
+            
+            # 3. Pre-warm TensorFlow model (trigger XLA compilation)
+            print("⏳ Warming up TensorFlow model...")
+            self._prewarm_model()
+            
             self.is_ready = True
-            print("✅ AI Models Loaded Successfully!")
+            print("✅ AI Models Loaded & Optimized Successfully!")
         except Exception as e:
             print(f"❌ Failed to load models: {e}")
             self.is_ready = False
+
+    def _compute_opening_complexity(self):
+        """Pre-compute opening complexity scores (called once at startup)"""
+        player_opening = self.collaborative_data['player_opening_matrix'].copy()
+        player_data = self.collaborative_data['player_data']
+        player_opening = player_opening.merge(player_data[['player_id', 'rating']], on='player_id', how='left')
+        opening_avg_rating = player_opening.groupby('opening_name')['rating'].mean()
+        
+        if opening_avg_rating.max() - opening_avg_rating.min() > 0:
+            normalized_complexity = (opening_avg_rating - opening_avg_rating.min()) / (opening_avg_rating.max() - opening_avg_rating.min())
+        else:
+            normalized_complexity = pd.Series(0.5, index=opening_avg_rating.index)
+        return normalized_complexity
+
+    def _prewarm_model(self):
+        """Run dummy prediction to trigger XLA compilation at startup"""
+        try:
+            model = self.collaborative_model['model']
+            player_encoder = self.collaborative_data['player_encoder']
+            
+            # Small dummy batch
+            dummy_players = np.array([0, 0, 0])
+            dummy_openings = np.array([0, 1, 2])
+            
+            # This triggers XLA compilation
+            _ = model.predict([dummy_players, dummy_openings], batch_size=3, verbose=0)
+            print("✅ Model warmed up!")
+        except Exception as e:
+            print(f"⚠️ Model warmup failed (non-critical): {e}")
 
     # --- Helper Methods (Private) ---
     def _calibrate_score(self, score, target_min=0.5, target_max=0.99):
@@ -113,43 +170,35 @@ class ChessRecommender:
 
     def _get_collaborative(self, user_rating, top_n=50, debug=False):
         """
-        Logic Collaborative Filtering asli yang di-port dari app.py
+        Logic Collaborative Filtering - OPTIMIZED VERSION
         """
         if self.collaborative_data is None or self.collaborative_model is None:
             return pd.DataFrame(columns=['opening_name', 'score'])
 
-        # --- Helper Inner Functions ---
+        # --- Helper Inner Functions (Optimized) ---
         def softmax(x):
             e_x = np.exp(x - np.max(x))
             return e_x / e_x.sum()
 
-        def estimate_opening_complexity(collaborative_data):
-            player_opening = collaborative_data['player_opening_matrix'].copy()
-            player_data = collaborative_data['player_data']
-            player_opening = player_opening.merge(player_data[['player_id', 'rating']], on='player_id', how='left')
-            opening_avg_rating = player_opening.groupby('opening_name')['rating'].mean()
-            
-            if opening_avg_rating.max() - opening_avg_rating.min() > 0:
-                normalized_complexity = (opening_avg_rating - opening_avg_rating.min()) / (opening_avg_rating.max() - opening_avg_rating.min())
-            else:
-                normalized_complexity = pd.Series(0.5, index=opening_avg_rating.index)
-            return normalized_complexity
-
-        def adjust_by_rating(predictions, complexity_scores, user_rating, rating_max=3000, influence=0.3):
+        def adjust_by_rating_vectorized(predictions, complexity_scores, user_rating, rating_max=3000, influence=0.3):
+            """Vectorized version - much faster than loop"""
             normalized_rating = user_rating / rating_max
-            common_openings = set(predictions.index) & set(complexity_scores.index)
-            adjusted_predictions = predictions.copy()
-
-            for opening in common_openings:
-                complexity = complexity_scores.get(opening, 0.5)
-                rating_factor = normalized_rating - 0.5
-                complexity_factor = complexity - 0.5
-                adjustment = influence * rating_factor * complexity_factor * 2
-                adjusted_predictions[opening] = adjusted_predictions[opening] * (1 + adjustment)
-
-            if adjusted_predictions.max() > 0:
-                adjusted_predictions = adjusted_predictions / adjusted_predictions.max()
-            return adjusted_predictions
+            
+            # Align indices
+            common_idx = predictions.index.intersection(complexity_scores.index)
+            pred_aligned = predictions.loc[common_idx]
+            comp_aligned = complexity_scores.loc[common_idx]
+            
+            # Vectorized calculation
+            rating_factor = normalized_rating - 0.5
+            complexity_factor = comp_aligned - 0.5
+            adjustment = influence * rating_factor * complexity_factor * 2
+            adjusted = pred_aligned * (1 + adjustment)
+            
+            # Normalize
+            if adjusted.max() > 0:
+                adjusted = adjusted / adjusted.max()
+            return adjusted
 
         # --- Main Logic ---
         player_data = self.collaborative_data['player_data']
@@ -157,9 +206,31 @@ class ChessRecommender:
         opening_encoder = self.collaborative_data['opening_encoder']
         model = self.collaborative_model['model']
 
-        # Cari pemain mirip
+        # === LAZY CACHING ===
+        # Round rating to nearest 250 for cache bucket (reduces buckets while maintaining accuracy)
+        rating_bucket = round(user_rating / 250) * 250
+        rating_bucket = max(500, min(3000, rating_bucket))
+        
+        # Check if we have cached predictions for this rating bucket
+        if rating_bucket in self._cf_prediction_cache:
+            print(f"⚡ Cache HIT for rating bucket {rating_bucket}")
+            cached_result = self._cf_prediction_cache[rating_bucket].copy()
+            # Apply rating-specific adjustments
+            final_result = adjust_by_rating_vectorized(
+                pd.Series(cached_result['score'].values, index=cached_result['opening_name']),
+                self._opening_complexity_cache,
+                user_rating
+            )
+            return pd.DataFrame({
+                'opening_name': final_result.index,
+                'score': final_result.values
+            }).sort_values('score', ascending=False).head(top_n)
+        
+        print(f"🔄 Cache MISS for rating bucket {rating_bucket}, computing...")
+
+        # Cari pemain mirip (REDUCED from 10 to 5 for performance)
         rating_diff = abs(player_data['rating'] - user_rating)
-        min_similar_players = 10
+        min_similar_players = 5
         rating_ranges = [50, 100, 200, 300, 400, 500, 750, 1000]
         
         similar_players_idx = None
@@ -187,10 +258,9 @@ class ChessRecommender:
             valid_weights = None
 
         if len(valid_similar_players) == 0:
-            # Fallback popularity
+            # Fallback popularity - USE CACHED COMPLEXITY
             opening_counts = self.collaborative_data['player_opening_matrix'].groupby('opening_name').size()
-            opening_complexity = estimate_opening_complexity(self.collaborative_data)
-            adjusted_counts = adjust_by_rating(opening_counts, opening_complexity, user_rating)
+            adjusted_counts = adjust_by_rating_vectorized(opening_counts, self._opening_complexity_cache, user_rating)
             normalized_counts = adjusted_counts / adjusted_counts.max() if adjusted_counts.max() > 0 else adjusted_counts
             
             return pd.DataFrame({
@@ -199,9 +269,9 @@ class ChessRecommender:
             }).sort_values('score', ascending=False).head(top_n)
 
         else:
-            # Predict with Model
+            # Predict with Model - USE CACHED encoded_openings
             encoded_players = player_encoder.transform(valid_similar_players)
-            encoded_openings = np.arange(len(opening_encoder.classes_))
+            encoded_openings = self._encoded_openings_cache  # CACHED!
             
             players_batch = np.repeat(encoded_players, len(encoded_openings))
             openings_batch = np.tile(encoded_openings, len(encoded_players))
@@ -228,11 +298,19 @@ class ChessRecommender:
             temperature = 2.0
             softmax_predictions = softmax(avg_predictions / temperature)
             
-            opening_complexity = estimate_opening_complexity(self.collaborative_data)
+            # Store raw predictions in cache (before rating adjustment)
+            # This allows reuse for nearby ratings
+            raw_predictions_df = pd.DataFrame({
+                'opening_name': opening_encoder.classes_,
+                'score': softmax_predictions
+            })
+            self._cf_prediction_cache[rating_bucket] = raw_predictions_df
+            print(f"✅ Cached predictions for rating bucket {rating_bucket}")
             
-            final_predictions = adjust_by_rating(
+            # USE CACHED COMPLEXITY & VECTORIZED FUNCTION
+            final_predictions = adjust_by_rating_vectorized(
                 pd.Series(softmax_predictions, index=opening_encoder.classes_),
-                opening_complexity,
+                self._opening_complexity_cache,
                 user_rating
             )
             
@@ -269,12 +347,30 @@ class ChessRecommender:
             hybrid['hybrid_score'] = alpha * hybrid['cb_score']
         else:
             hybrid = pd.merge(cb_recs, cf_recs, on='opening_name', how='outer').fillna(0)
-            # Normalisasi ulang (penting!)
+            
+            # === FIX: Percentile-based normalization for fair comparison ===
+            # This ensures both CB and CF have the same distribution shape
+            # so that alpha=0.5 is truly balanced
+            
             for col in ['cb_score', 'cf_score']:
                 if hybrid[col].max() > 0:
-                    hybrid[col] = (hybrid[col] - hybrid[col].min()) / (hybrid[col].max() - hybrid[col].min())
+                    # Convert to percentile ranks (0-1)
+                    # This makes distributions comparable regardless of original scale
+                    ranked = hybrid[col].rank(method='average', pct=True)
+                    # Scale to [0.1, 1.0] to ensure no zeros
+                    hybrid[col] = ranked * 0.9 + 0.1
+                else:
+                    hybrid[col] = 0.1
             
+            # Hitung hybrid score dengan bobot alpha
+            # alpha=1.0 → 100% CB, alpha=0.0 → 100% CF, alpha=0.5 → 50/50
             hybrid['hybrid_score'] = (alpha * hybrid['cb_score']) + ((1 - alpha) * hybrid['cf_score'])
+            
+            # Normalisasi ulang hybrid_score ke [0, 1] agar maksimum 100%
+            hs_max = hybrid['hybrid_score'].max()
+            hs_min = hybrid['hybrid_score'].min()
+            if hs_max > hs_min:
+                hybrid['hybrid_score'] = (hybrid['hybrid_score'] - hs_min) / (hs_max - hs_min)
 
         # 3. Filter & Sort
         hybrid = hybrid[~hybrid.opening_name.isin(favorite_openings)]

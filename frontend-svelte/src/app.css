@@ -93,6 +93,22 @@ body.animated-bg {
   }
 }
 
+/* Animated gradient for title */
+@keyframes gradient-shift {
+  0% { background-position: 0% center; }
+  50% { background-position: 100% center; }
+  100% { background-position: 0% center; }
+}
+
+.animate-gradient {
+  animation: gradient-shift 3s ease-in-out infinite;
+}
+
+/* Delay utilities for staggered animations */
+.delay-300 { animation-delay: 300ms; }
+.delay-500 { animation-delay: 500ms; }
+.delay-700 { animation-delay: 700ms; }
+
 /* ===== GLASS COMPONENTS ===== */
 
 /* Main glass card */
@@ -126,6 +142,18 @@ body.animated-bg {
     0 0 0 1px rgba(59, 130, 246, 0.2),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
   transform: translateY(-2px);
+}
+
+/* Dropdown glass - more opaque/solid background */
+.glass-dropdown {
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 
+    0 12px 40px 0 rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
 }
 
 /* Input glass */
