@@ -17,9 +17,18 @@ pub async fn get_recommendations(
         return (StatusCode::BAD_REQUEST, "Rating tidak valid (500-3000)").into_response();
     }
 
-    // 2. Ambil URL Python dari .env
-    let ai_service_url = env::var("AI_SERVICE_URL")
-        .unwrap_or_else(|_| "http://localhost:8001/predict".to_string());
+
+    let ai_service_base = env::var("AI_SERVICE_URL")
+        .unwrap_or_else(|_| "http://localhost:8001".to_string());
+
+    // Pastikan URL mengarah ke endpoint /predict
+    let ai_service_url = if ai_service_base.ends_with("/predict") {
+        ai_service_base
+    } else {
+        format!("{}/predict", ai_service_base.trim_end_matches('/'))
+    };
+
+    println!("🔗 Forwarding request to: {}", ai_service_url); // Log untuk debugging
 
     // 3. Tembak ke Python (Proxy)
     let client = reqwest::Client::new();
