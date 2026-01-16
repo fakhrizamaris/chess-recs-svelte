@@ -178,14 +178,14 @@ The system combines two approaches:
 
 ```bash
 # Build and push images
-gcloud builds submit --tag gcr.io/PROJECT_ID/ai-service ./services-api
-gcloud builds submit --tag gcr.io/PROJECT_ID/api-gateway ./backend-rust
-gcloud builds submit --tag gcr.io/PROJECT_ID/frontend ./frontend-svelte
+gcloud builds submit --tag gcr.io/chess-recs-484510/ai-service ./services-api
+gcloud builds submit --tag gcr.io/chess-recs-484510/api-gateway ./backend-rust
+gcloud builds submit --tag gcr.io/chess-recs-484510/frontend ./frontend-svelte
 
 # Deploy services
-gcloud run deploy ai-service --image gcr.io/PROJECT_ID/ai-service
-gcloud run deploy api-gateway --image gcr.io/PROJECT_ID/api-gateway
-gcloud run deploy frontend --image gcr.io/PROJECT_ID/frontend
+gcloud run deploy ai-service --image gcr.io/chess-recs-484510/ai-service
+gcloud run deploy api-gateway --image gcr.io/chess-recs-484510/api-gateway
+gcloud run deploy frontend --image gcr.io/chess-recs-484510/frontend
 ```
 
 ---
