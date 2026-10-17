@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-import tensorflow as tf
 import pickle
 import chess
 from app.config import settings
@@ -34,6 +33,47 @@ def moves_to_fen(moves_str: str) -> str:
         # If any error, return starting position
         print(f"❌ FEN error: {e}")
         return chess.Board().fen()
+
+
+class NumpyMFModel:
+    """Inferensi matrix factorization tanpa TensorFlow (hemat ~700 MB RAM).
+
+    Setara dengan model Keras: sigmoid(dot(player_emb, opening_emb) + bias_player + bias_opening).
+    Meniru signature `predict` milik Keras supaya sisa kode tidak berubah.
+    """
+
+    def __init__(self, path):
+        w = np.load(path)
+        self.player_emb = w["player_emb"]
+        self.opening_emb = w["opening_emb"]
+        self.player_bias = w["player_bias"]
+        self.opening_bias = w["opening_bias"]
+
+    def predict(self, inputs, batch_size=1024, verbose=0):
+        players = np.asarray(inputs[0], dtype=np.int64).reshape(-1)
+        openings = np.asarray(inputs[1], dtype=np.int64).reshape(-1)
+        out = np.empty((len(players), 1), dtype=np.float32)
+        # Per chunk agar memori puncak tetap kecil di VPS 1 GB
+        for i in range(0, len(players), batch_size):
+            p = players[i:i + batch_size]
+            o = openings[i:i + batch_size]
+            logits = (
+                np.einsum("ij,ij->i", self.player_emb[p], self.opening_emb[o])
+                + self.player_bias[p]
+                + self.opening_bias[o]
+            )
+            out[i:i + batch_size, 0] = 1.0 / (1.0 + np.exp(-logits))
+        return out
+
+
+def load_collaborative_model():
+    """Pakai bobot .npz (ringan) bila ada; fallback ke Keras/TensorFlow bila tidak."""
+    if settings.COLLAB_WEIGHTS_PATH.exists():
+        print("⚡ Collaborative model: numpy (tanpa TensorFlow)")
+        return NumpyMFModel(settings.COLLAB_WEIGHTS_PATH)
+    import tensorflow as tf  # import lambat & berat, hanya bila benar-benar dibutuhkan
+    print("🐢 Collaborative model: Keras/TensorFlow (fallback)")
+    return tf.keras.models.load_model(settings.COLLAB_MODEL_PATH)
 
 
 class ChessRecommender:
@@ -74,9 +114,8 @@ class ChessRecommender:
             with open(settings.COLLAB_DATA_PATH, 'rb') as f:
                 self.collaborative_data = pickle.load(f)
             
-            # Load Keras Model
-            keras_model = tf.keras.models.load_model(settings.COLLAB_MODEL_PATH)
-            self.collaborative_model = {'model': keras_model}
+            # Load collaborative model (numpy bila ada .npz, kalau tidak Keras)
+            self.collaborative_model = {'model': load_collaborative_model()}
             
             # with open(settings.COLLAB_EXTRA_PATH, 'rb') as f:
             #     collab_data_extra = pickle.load(f)
@@ -96,8 +135,8 @@ class ChessRecommender:
             opening_encoder = self.collaborative_data['opening_encoder']
             self._encoded_openings_cache = np.arange(len(opening_encoder.classes_))
             
-            # 3. Pre-warm TensorFlow model (trigger XLA compilation)
-            print("⏳ Warming up TensorFlow model...")
+            # 3. Pre-warm model
+            print("⏳ Warming up model...")
             self._prewarm_model()
             
             self.is_ready = True
@@ -120,7 +159,7 @@ class ChessRecommender:
         return normalized_complexity
 
     def _prewarm_model(self):
-        """Run dummy prediction to trigger XLA compilation at startup"""
+        """Run dummy prediction at startup (memicu kompilasi bila memakai Keras)"""
         try:
             model = self.collaborative_model['model']
             player_encoder = self.collaborative_data['player_encoder']

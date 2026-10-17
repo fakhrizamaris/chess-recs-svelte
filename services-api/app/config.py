@@ -10,6 +10,7 @@ DATA_PATH = Path(os.getenv("DATA_PATH", str(BASE_DIR / "games.csv")))
 # Model paths - only files actually loaded!
 CONTENT_MODEL_PATH = Path(os.getenv("CONTENT_MODEL_PATH", str(BASE_DIR / "models" / "content_based_model.pkl")))
 COLLAB_MODEL_PATH = Path(os.getenv("COLLAB_MODEL_PATH", str(BASE_DIR / "models" / "collaborative_model.keras")))
+COLLAB_WEIGHTS_PATH = Path(os.getenv("COLLAB_WEIGHTS_PATH", str(BASE_DIR / "models" / "collaborative_weights.npz")))
 COLLAB_DATA_PATH = Path(os.getenv("COLLAB_DATA_PATH", str(BASE_DIR / "models" / "collaborative_data.pkl")))
 
 # Note: hybrid_model.pkl not needed - hybrid logic is in predict() method, not a pickled function
@@ -34,6 +35,7 @@ class Settings:
     DATA_PATH = DATA_PATH
     CONTENT_MODEL_PATH = CONTENT_MODEL_PATH
     COLLAB_MODEL_PATH = COLLAB_MODEL_PATH
+    COLLAB_WEIGHTS_PATH = COLLAB_WEIGHTS_PATH
     COLLAB_DATA_PATH = COLLAB_DATA_PATH
     HOST = HOST
     PORT = PORT

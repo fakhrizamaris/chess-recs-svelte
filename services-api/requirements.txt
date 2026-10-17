@@ -2,8 +2,12 @@ fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 pandas
 numpy
-scikit-learn
-tensorflow-cpu
+# Model .pkl dibuat dengan scikit-learn 1.6.1; versi lain memicu InconsistentVersionWarning
+scikit-learn==1.6.1
 pydantic>=2.0.0
 python-dotenv
 python-chess
+
+# TensorFlow tidak dibutuhkan lagi: model collaborative dijalankan lewat numpy
+# (models/collaborative_weights.npz). Pasang tensorflow-cpu hanya untuk
+# menjalankan scripts/export_cf_weights.py atau fallback ke collaborative_model.keras.
