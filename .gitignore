@@ -33,3 +33,6 @@ frontend-svelte/.npmrc
 
 # Logs
 *.log
+
+# Deploy VPS
+deploy/.env

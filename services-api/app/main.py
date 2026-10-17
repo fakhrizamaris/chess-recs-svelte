@@ -23,7 +23,7 @@ app = FastAPI(title="ChessRecs AI Service", version="1.0", lifespan=lifespan)
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins (atau specify ["http://localhost:5173"])
+    allow_origins=settings.CORS_ORIGINS,  # Atur lewat env CORS_ORIGINS (pisahkan koma), default "*"
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,6 +35,11 @@ router = APIRouter()
 @app.get("/")
 def health_check():
     return {"status": "active", "model_ready": recommender.is_ready}
+
+@app.get("/health")
+def health():
+    """Liveness probe untuk Docker/Caddy. Selalu 200 selama proses hidup."""
+    return {"status": "ok", "model_ready": recommender.is_ready}
 
 @app.get("/openings")
 def get_all_openings():

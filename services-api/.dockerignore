@@ -43,10 +43,8 @@ htmlcov/
 !README.md
 docs/
 
-# Large files (we'll include models in image)
-# If models are too large, comment these out and use GCS
-# models/*.pkl
-# models/*.keras
+# Skrip debug, tidak dibutuhkan saat runtime
+debug_fen.py
 
 # Development
 notebooks/

@@ -1,0 +1,70 @@
+# ============================================
+# ChessRecs NextGen - Produksi di VPS (RAM 1 GB)
+#
+# Isi: AI service (FastAPI) + Caddy (HTTPS otomatis).
+# Gateway Rust sengaja tidak dipakai di sini: perannya hanya meneruskan
+# ke /predict, jadi Caddy yang meng-rewrite /api/recommend -> /predict.
+# Ini menghemat RAM dan menghindari build Rust yang berat di VPS kecil.
+#
+# Jalankan:  cp deploy/.env.example deploy/.env  (isi dulu)
+#            docker compose -f docker-compose.prod.yml --env-file deploy/.env up -d --build
+# ============================================
+
+name: chessrecs
+
+services:
+  ai-service:
+    build:
+      context: ./services-api
+    image: chessrecs-ai:latest
+    restart: unless-stopped
+    environment:
+      PORT: '8001'
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    # Tidak dipublikasikan ke host: hanya Caddy yang boleh mengaksesnya.
+    expose:
+      - '8001'
+    # Terukur: ~260 MB normal, ~450 MB puncak. Batas 600 MB memberi ruang
+    # aman, dan mencegah satu container menyeret seluruh VPS kehabisan RAM.
+    mem_limit: 600m
+    # Healthcheck didefinisikan di Dockerfile (/health).
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    networks:
+      - web
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      ai-service:
+        condition: service_healthy
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?Isi API_DOMAIN di deploy/.env}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp' # HTTP/3
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # sertifikat TLS, jangan hilang agar tidak kena rate limit Let's Encrypt
+      - caddy_config:/config
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    networks:
+      - web
+
+networks:
+  web:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

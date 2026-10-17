@@ -188,6 +188,10 @@ gcloud run deploy api-gateway --image gcr.io/chess-recs-484510/api-gateway
 gcloud run deploy frontend --image gcr.io/chess-recs-484510/frontend
 ```
 
+### VPS (Docker + Caddy, cukup RAM 1 GB)
+
+AI service + HTTPS otomatis lewat `docker-compose.prod.yml`. Panduan lengkap: [DEPLOY_VPS.md](DEPLOY_VPS.md).
+
 ---
 
 ## 📝 License

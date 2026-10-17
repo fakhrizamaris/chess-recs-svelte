@@ -1,0 +1,31 @@
+# Caddy = reverse proxy + HTTPS otomatis (Let's Encrypt).
+# {$API_DOMAIN} diisi dari environment, contoh: api.namakamu.com
+#
+# Belum punya domain? Pakai sslip.io, contoh IP 203.0.113.10:
+#   API_DOMAIN=203-0-113-10.sslip.io
+{$API_DOMAIN} {
+	encode zstd gzip
+
+	# Payload request cuma JSON kecil (rating + maks 5 opening).
+	request_body {
+		max_size 16KB
+	}
+
+	# Kompatibilitas dengan frontend: dulu /api/recommend ditangani gateway Rust
+	# yang hanya meneruskan ke /predict. Sekarang Caddy yang melakukannya.
+	@recommend path /api/recommend
+	rewrite @recommend /predict
+
+	# /health, /openings, /predict diteruskan apa adanya ke FastAPI.
+	reverse_proxy ai-service:8001 {
+		health_uri /health
+		health_interval 30s
+		health_timeout 5s
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+}
