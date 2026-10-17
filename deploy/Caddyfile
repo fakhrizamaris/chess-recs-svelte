@@ -17,10 +17,14 @@
 	rewrite @recommend /predict
 
 	# /health, /openings, /predict diteruskan apa adanya ke FastAPI.
+	# Saat deploy ulang, container ai-service sempat tidak ada. Tanpa lb_try_duration,
+	# Caddy langsung menjawab 503; dengan ini ia menunggu upstream pulih (maks 30 detik).
 	reverse_proxy ai-service:8001 {
 		health_uri /health
-		health_interval 30s
-		health_timeout 5s
+		health_interval 5s
+		health_timeout 3s
+		lb_try_duration 30s
+		lb_try_interval 500ms
 	}
 
 	header {
