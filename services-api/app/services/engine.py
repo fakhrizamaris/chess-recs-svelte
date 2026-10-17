@@ -268,30 +268,31 @@ class ChessRecommender:
         print(f"🔄 Cache MISS for rating bucket {rating_bucket}, computing...")
 
         # Cari pemain mirip (REDUCED from 10 to 5 for performance)
-        rating_diff = abs(player_data['rating'] - user_rating)
+        # player_data punya banyak baris per pemain (index tidak unik), jadi selisih rating
+        # dihitung per player_id (baris terdekat). Kalau tidak, .loc mengembalikan baris
+        # ganda dan jumlah pemain tidak sama dengan jumlah bobot (IndexError di rating tertentu).
+        rating_diff = (
+            (player_data['rating'] - user_rating).abs()
+            .groupby(player_data['player_id']).min()
+        )
         min_similar_players = 5
         rating_ranges = [50, 100, 200, 300, 400, 500, 750, 1000]
-        
-        similar_players_idx = None
-        for r_range in rating_ranges:
-            similar_players_idx = rating_diff[rating_diff <= r_range].index
-            if len(similar_players_idx) >= min_similar_players:
-                break
-        
-        if len(similar_players_idx) < min_similar_players:
-            similar_players_idx = rating_diff.nsmallest(min_similar_players).index
 
-        rating_weights = 1 / (rating_diff.loc[similar_players_idx] + 10)
-        rating_weights = rating_weights / rating_weights.sum()
-        
-        similar_players = player_data.loc[similar_players_idx, 'player_id'].unique()
-        
-        # Filter valid players
-        valid_similar_players = [p for p in similar_players if p in player_encoder.classes_]
-        valid_player_indices = [similar_players_idx[i] for i, p in enumerate(similar_players) if p in player_encoder.classes_]
-        
-        if valid_player_indices:
-            valid_weights = rating_weights.loc[valid_player_indices]
+        similar = None
+        for r_range in rating_ranges:
+            similar = rating_diff[rating_diff <= r_range]
+            if len(similar) >= min_similar_players:
+                break
+
+        if len(similar) < min_similar_players:
+            similar = rating_diff.nsmallest(min_similar_players)
+
+        # Hanya pemain yang dikenal encoder; bobot = makin dekat rating, makin besar
+        similar = similar[similar.index.isin(player_encoder.classes_)]
+        valid_similar_players = similar.index.to_numpy()
+
+        if len(valid_similar_players) > 0:
+            valid_weights = 1 / (similar.to_numpy() + 10)
             valid_weights = valid_weights / valid_weights.sum()
         else:
             valid_weights = None
@@ -324,13 +325,7 @@ class ChessRecommender:
             predictions_matrix = predictions.reshape(len(encoded_players), -1)
             
             if valid_weights is not None:
-                weighted_predictions = np.zeros(predictions_matrix.shape[1])
-                for i in range(len(valid_similar_players)):
-                    if i < len(valid_weights): # Safety check
-                        weighted_predictions += predictions_matrix[i] * valid_weights.iloc[i]
-                    else:
-                        weighted_predictions += predictions_matrix[i] * (1/len(valid_similar_players))
-                avg_predictions = weighted_predictions
+                avg_predictions = valid_weights @ predictions_matrix
             else:
                 avg_predictions = np.mean(predictions_matrix, axis=0)
 
