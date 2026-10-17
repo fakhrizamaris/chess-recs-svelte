@@ -1,205 +1,137 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { Chess } from 'chess.js';
+	import { Chess, type Square } from 'chess.js';
 
-  export let fen: string;
-  export let size: number = 280;
-  export let showNotation: boolean = true;
+	export let fen: string;
+	/** Langkah SAN (mis. "e4 c5 Nf3"), dipakai untuk menandai langkah terakhir */
+	export let moves: string = '';
+	export let label: string = 'Chess position';
 
-  let squares: { file: string; rank: number; piece: string | null; color: 'light' | 'dark' }[] = [];
+	type Cell = { square: string; piece: string | null; white: boolean; light: boolean };
 
-  const pieceUnicode: Record<string, string> = {
-    'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙',
-    'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟'
-  };
+	// Glyph penuh untuk kedua warna; warna putih diberi isi terang + garis tinta.
+	// Tiap glyph diikuti U+FE0E (variation selector) agar tampil sebagai teks,
+	// bukan emoji (iOS merender ♟ sebagai emoji).
+	const glyph: Record<string, string> = {
+		k: '♚︎', q: '♛︎', r: '♜︎',
+		b: '♝︎', n: '♞︎', p: '♟︎'
+	};
+	const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+	const ranks = [8, 7, 6, 5, 4, 3, 2, 1];
 
-  const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-  const ranks = [8, 7, 6, 5, 4, 3, 2, 1];
+	function build(fenString: string): Cell[] {
+		let chess: Chess | null = null;
+		try {
+			chess = new Chess(fenString);
+		} catch {
+			chess = null;
+		}
+		const cells: Cell[] = [];
+		for (const rank of ranks) {
+			for (const [fi, file] of files.entries()) {
+				const square = `${file}${rank}`;
+				const p = chess?.get(square as Square);
+				cells.push({
+					square,
+					piece: p ? p.type : null,
+					white: p ? p.color === 'w' : false,
+					light: (fi + rank) % 2 === 1
+				});
+			}
+		}
+		return cells;
+	}
 
-  function parseFen(fenString: string) {
-    const result: typeof squares = [];
-    
-    try {
-      const chess = new Chess(fenString);
-      
-      for (const rank of ranks) {
-        for (const file of files) {
-          const square = `${file}${rank}` as any;
-          const piece = chess.get(square);
-          const isLight = (files.indexOf(file) + rank) % 2 === 1;
-          
-          result.push({
-            file,
-            rank,
-            piece: piece ? (piece.color === 'w' ? piece.type.toUpperCase() : piece.type.toLowerCase()) : null,
-            color: isLight ? 'light' : 'dark'
-          });
-        }
-      }
-    } catch (e) {
-      // Fallback to empty board
-      for (const rank of ranks) {
-        for (const file of files) {
-          const isLight = (files.indexOf(file) + rank) % 2 === 1;
-          result.push({ file, rank, piece: null, color: isLight ? 'light' : 'dark' });
-        }
-      }
-    }
-    
-    return result;
-  }
+	function lastMove(sanMoves: string): string[] {
+		const list = sanMoves.split(/\s+/).filter((m) => m && !/^\d+\.+$/.test(m));
+		if (!list.length) return [];
+		try {
+			const chess = new Chess();
+			let last = null;
+			for (const san of list) last = chess.move(san);
+			return last ? [last.from, last.to] : [];
+		} catch {
+			return [];
+		}
+	}
 
-  $: squares = parseFen(fen);
-  $: squareSize = size / 8;
-  $: notationSize = showNotation ? 16 : 0;
-  $: totalSize = size + notationSize;
+	$: cells = build(fen);
+	$: marked = lastMove(moves);
 </script>
 
-<div class="board-container" style="width: {totalSize}px;">
-  <!-- Top spacer for alignment -->
-  {#if showNotation}
-    <div class="notation-row" style="height: {notationSize}px; padding-left: {notationSize}px;">
-      {#each files as file}
-        <span class="file-label" style="width: {squareSize}px;">{file}</span>
-      {/each}
-    </div>
-  {/if}
-
-  <div class="board-row">
-    <!-- Left rank labels -->
-    {#if showNotation}
-      <div class="rank-labels" style="width: {notationSize}px;">
-        {#each ranks as rank}
-          <span class="rank-label" style="height: {squareSize}px;">{rank}</span>
-        {/each}
-      </div>
-    {/if}
-
-    <!-- Chess Board -->
-    <div 
-      class="chess-board" 
-      style="width: {size}px; height: {size}px; grid-template-columns: repeat(8, {squareSize}px);"
-    >
-      {#each squares as sq, i (i)}
-        <div 
-          class="square {sq.color}"
-          style="width: {squareSize}px; height: {squareSize}px;"
-        >
-          {#if sq.piece}
-            <span class="piece" class:white-piece={sq.piece === sq.piece.toUpperCase()}>
-              {pieceUnicode[sq.piece]}
-            </span>
-          {/if}
-        </div>
-      {/each}
-    </div>
-  </div>
-
-  <!-- Bottom file labels -->
-  {#if showNotation}
-    <div class="notation-row bottom" style="height: {notationSize}px; padding-left: {notationSize}px;">
-      {#each files as file}
-        <span class="file-label" style="width: {squareSize}px;">{file}</span>
-      {/each}
-    </div>
-  {/if}
+<div class="board" role="img" aria-label={label}>
+	{#each cells as c (c.square)}
+		<div class="sq" class:light={c.light} class:mark={marked.includes(c.square)}>
+			{#if c.square[0] === 'a'}
+				<span class="coord rank">{c.square[1]}</span>
+			{/if}
+			{#if c.square[1] === '1'}
+				<span class="coord file">{c.square[0]}</span>
+			{/if}
+			{#if c.piece}
+				<span class="piece" class:white={c.white}>{glyph[c.piece]}</span>
+			{/if}
+		</div>
+	{/each}
 </div>
 
 <style>
-  .board-container {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-  }
+	.board {
+		display: grid;
+		/* Baris & kolom eksplisit: tanpa ini baris berisi bidak lebih tinggi dari baris kosong */
+		grid-template-columns: repeat(8, minmax(0, 1fr));
+		grid-template-rows: repeat(8, minmax(0, 1fr));
+		width: 100%;
+		max-width: 360px;
+		aspect-ratio: 1;
+		border: 1px solid var(--ink);
+		container-type: inline-size;
+	}
 
-  .notation-row {
-    display: flex;
-    align-items: center;
-  }
+	.sq {
+		position: relative;
+		display: grid;
+		place-items: center;
+		min-height: 0;
+		overflow: hidden;
+		background: var(--board-dark);
+		color: var(--board-light);
+	}
+	.sq.light {
+		background: var(--board-light);
+		color: var(--board-dark);
+	}
+	/* Langkah terakhir: lapisan aksen di atas warna petak */
+	.sq.mark {
+		background-image: linear-gradient(var(--board-mark), var(--board-mark));
+	}
 
-  .notation-row.bottom {
-    margin-top: 2px;
-  }
+	.coord {
+		position: absolute;
+		font-family: var(--font-mono);
+		font-size: max(8px, 2.6cqi);
+		font-weight: 500;
+		line-height: 1;
+	}
+	.coord.rank {
+		top: 3px;
+		left: 3px;
+	}
+	.coord.file {
+		right: 3px;
+		bottom: 2px;
+	}
 
-  .file-label {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.65rem;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.6);
-    text-transform: uppercase;
-  }
-
-  .board-row {
-    display: flex;
-    align-items: stretch;
-  }
-
-  .rank-labels {
-    display: flex;
-    flex-direction: column;
-    justify-content: space-around;
-    padding-right: 4px;
-  }
-
-  .rank-label {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.65rem;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.6);
-  }
-
-  .chess-board {
-    display: grid;
-    border-radius: 4px;
-    overflow: hidden;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  }
-
-  .square {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-  }
-
-  .square.light {
-    background: #f0d9b5;
-  }
-
-  .square.dark {
-    background: #b58863;
-  }
-
-  .piece {
-    font-size: 2rem;
-    line-height: 1;
-    user-select: none;
-    filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.3));
-  }
-
-  .white-piece {
-    color: #fff;
-    text-shadow: 
-      0 0 2px #000,
-      1px 1px 1px #000;
-  }
-
-  .piece:not(.white-piece) {
-    color: #000;
-  }
-
-  /* Responsive font size */
-  @media (max-width: 640px) {
-    .piece {
-      font-size: 1.5rem;
-    }
-    .file-label, .rank-label {
-      font-size: 0.55rem;
-    }
-  }
+	.piece {
+		font-family: 'Segoe UI Symbol', 'Apple Symbols', 'DejaVu Sans', 'Noto Sans Symbols 2', serif;
+		font-size: 9.6cqi;
+		line-height: 1;
+		color: #1c1b18;
+		user-select: none;
+		transform: translateY(-3%);
+	}
+	.piece.white {
+		color: #fbf8f2;
+		-webkit-text-stroke: 0.045em #1c1b18;
+		paint-order: stroke fill;
+	}
 </style>
-

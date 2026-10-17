@@ -1,291 +1,718 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { fade, fly } from 'svelte/transition';
-  import { quintOut } from 'svelte/easing';
-  import { toast } from 'svelte-sonner';
-  import AnimatedSlider from '$lib/components/AnimatedSlider.svelte';
-  import OpeningPicker from '$lib/components/OpeningPicker.svelte';
-  import ResultCard from '$lib/components/ResultCard.svelte';
-  import { getRecommendations, endpoints, type RecommendationResponse } from '$lib/api/client';
-  import { Sparkles, TrendingUp } from 'lucide-svelte';
+	import { onMount } from 'svelte';
+	import { toast } from 'svelte-sonner';
+	import Logo from '$lib/components/Logo.svelte';
+	import RangeField from '$lib/components/RangeField.svelte';
+	import OpeningPicker from '$lib/components/OpeningPicker.svelte';
+	import ResultCard from '$lib/components/ResultCard.svelte';
+	import ChessBoard from '$lib/components/ChessBoard.svelte';
+	import { getRecommendations, endpoints, type RecommendationResponse } from '$lib/api/client';
 
-  let eloRating = 1500;
-  let favoriteOpenings: string[] = [];
-  let alpha = 0.5;
-  let results: RecommendationResponse[] = [];
-  let isLoading = false;
-  let hasSearched = false;
+	const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
-  async function handleSubmit() {
-    if (favoriteOpenings.length === 0) {
-      toast.error('Please select at least one favorite opening');
-      return;
-    }
+	let eloRating = 1500;
+	let favoriteOpenings: string[] = [];
+	let alpha = 0.5;
+	let totalOpenings = 0;
 
-    isLoading = true;
-    hasSearched = true;
-    results = [];
+	let results: RecommendationResponse[] = [];
+	let isLoading = false;
+	let hasSearched = false;
+	let errorMessage = '';
+	let serverStatus: 'checking' | 'online' | 'offline' = 'checking';
 
-    try {
-      const recommendations = await getRecommendations({
-        user_rating: eloRating,
-        favorite_openings: favoriteOpenings,
-        alpha: alpha
-      });
+	/** Ringkasan permintaan terakhir, agar judul hasil tidak berubah saat form diutak-atik */
+	let lastQuery = { rating: 0, openings: [] as string[] };
 
-      results = recommendations;
-      toast.success(`Found ${recommendations.length} perfect matches!`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to get recommendations');
-      console.error(error);
-    } finally {
-      isLoading = false;
-    }
-  }
+	function band(rating: number) {
+		if (rating < 1000) return 'New to the game';
+		if (rating < 1400) return 'Casual player';
+		if (rating < 1800) return 'Club player';
+		if (rating < 2200) return 'Strong club player';
+		return 'Expert';
+	}
 
-  onMount(() => {
-    // Silent health check - no toast for users
-    fetch(endpoints.health())
-      .then(res => res.text())
-      .then(() => console.log('✅ Backend connected'))
-      .catch(() => console.warn('⚠️ Backend offline'));
-  });
+	function blend(a: number) {
+		const s = Math.round(a * 100);
+		if (s === 50) return 'Even blend';
+		return `${s}% your picks · ${100 - s}% rating peers`;
+	}
+
+	async function handleSubmit() {
+		if (favoriteOpenings.length === 0) {
+			toast.error('Pick at least one opening you already play.');
+			return;
+		}
+
+		isLoading = true;
+		hasSearched = true;
+		errorMessage = '';
+		results = [];
+		lastQuery = { rating: eloRating, openings: [...favoriteOpenings] };
+
+		try {
+			results = await getRecommendations({
+				user_rating: eloRating,
+				favorite_openings: favoriteOpenings,
+				alpha
+			});
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : 'Failed to get recommendations';
+			toast.error('Couldn’t get recommendations. Try again in a moment.');
+			console.error(error);
+		} finally {
+			isLoading = false;
+		}
+	}
+
+	onMount(() => {
+		fetch(endpoints.health())
+			.then((res) => (serverStatus = res.ok ? 'online' : 'offline'))
+			.catch(() => (serverStatus = 'offline'));
+	});
 </script>
 
 <svelte:head>
-  <title>ChessRecs NextGen - Smart Chess Opening Recommendations</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+	<title>ChessRecs · Find the next opening you’ll actually play</title>
 </svelte:head>
 
-<div class="min-h-screen pb-16">
-  
-  <!-- Enhanced Header -->
-  <header class="relative overflow-hidden">
-    <!-- Background decoration -->
-    <div class="absolute inset-0 opacity-10">
-      <div class="absolute top-10 left-10 text-8xl animate-pulse">♔</div>
-      <div class="absolute top-20 right-20 text-7xl animate-pulse delay-300">♕</div>
-      <div class="absolute bottom-10 left-1/4 text-6xl animate-pulse delay-500">♘</div>
-      <div class="absolute bottom-5 right-1/3 text-5xl animate-pulse delay-700">♗</div>
-    </div>
-    
-    <div class="container mx-auto px-4 py-16 relative z-10">
-      <div in:fly={{ y: -20, duration: 600, easing: quintOut }} class="text-center space-y-4">
-        <!-- Logo/Icon -->
-        <div class="flex items-center justify-center gap-3 mb-4">
-          <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center shadow-lg shadow-primary-500/30">
-            <span class="text-2xl">♟</span>
-          </div>
-        </div>
-        
-        <!-- Title with animated gradient -->
-        <h1 class="text-5xl md:text-7xl font-bold text-white mb-3 tracking-tight">
-          ChessRecs <span class="text-gradient bg-gradient-to-r from-primary-400 via-purple-400 to-primary-400 bg-clip-text text-transparent bg-[length:200%_auto] animate-gradient">NextGen</span>
-        </h1>
-        
-        <!-- Subtitle -->
-        <p class="text-lg md:text-xl text-white/60 max-w-md mx-auto">
-          Discover your next favorite opening with smart recommendations
-        </p>
-        
-        <!-- Stats badges -->
-        <div class="flex items-center justify-center gap-4 mt-6">
-          <div class="glass px-4 py-2 rounded-full text-sm text-white/70 flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
-            500+ Openings
-          </div>
-          <div class="glass px-4 py-2 rounded-full text-sm text-white/70">
-            Hybrid Algorithm
-          </div>
-        </div>
-      </div>
-    </div>
-  </header>
+<div class="page">
+	<header class="masthead">
+		<a class="brand" href="/" aria-label="ChessRecs home">
+			<Logo size={26} />
+			<span class="wordmark">ChessRecs</span>
+		</a>
+		<nav class="nav">
+			<span class="status kicker" data-status={serverStatus} aria-live="polite">
+				<i aria-hidden="true"></i>
+				{serverStatus === 'checking' ? 'Connecting' : serverStatus === 'online' ? 'Server online' : 'Server offline'}
+			</span>
+			<a href="#how">How it works</a>
+			<a href="https://github.com/fakhrizamaris/chess-recs-svelte" target="_blank" rel="noopener noreferrer">Source</a>
+		</nav>
+	</header>
 
-  <!-- Main Content -->
-  <div class="container mx-auto px-4 max-w-2xl">
-    
-    <!-- Input Form -->
-    <div in:fly={{ y: 20, duration: 600, delay: 100 }} class="mb-8">
-      <div class="glass-card rounded-2xl p-6 space-y-6">
-        <div class="flex items-center gap-2 border-b border-white/10 pb-4">
-          <Sparkles class="w-5 h-5 text-primary-400" />
-          <h2 class="text-xl font-semibold text-white">
-            Your Preferences
-          </h2>
-        </div>
+	<section class="hero rise">
+		<p class="kicker">Opening recommender · Lichess data</p>
+		<h1>Find the next opening you’ll actually play.</h1>
+		<p class="lede">
+			Tell us your rating and the openings you already enjoy. We suggest five lines that fit both,
+			drawn from 20,058 rated games across {totalOpenings ? totalOpenings.toLocaleString('en-US') : '1,477'} openings.
+		</p>
+	</section>
 
-        <!-- ELO Rating Slider -->
-        <AnimatedSlider
-          bind:value={eloRating}
-          min={500}
-          max={3000}
-          step={50}
-          label="ELO Rating"
-        />
+	<main class="workspace">
+		<form class="sheet rise" style="animation-delay: 80ms" on:submit|preventDefault={handleSubmit}>
+			<div class="field">
+				<div class="field-head">
+					<span class="field-no">01</span>
+					<label for="rating">Your rating</label>
+				</div>
+				<div class="readout">
+					<span class="readout-value tabular">{eloRating}</span>
+					<span class="readout-note">{band(eloRating)}</span>
+				</div>
+				<RangeField
+					id="rating"
+					bind:value={eloRating}
+					min={500}
+					max={3000}
+					step={50}
+					valueText="{eloRating}, {band(eloRating)}"
+					startLabel="500"
+					endLabel="3000"
+				/>
+			</div>
 
-        <!-- Favorite Openings -->
-        <OpeningPicker bind:selected={favoriteOpenings} maxSelections={3} />
+			<div class="field">
+				<div class="field-head">
+					<span class="field-no">02</span>
+					<label for="opening-search">Openings you already play</label>
+				</div>
+				<OpeningPicker bind:selected={favoriteOpenings} bind:total={totalOpenings} maxSelections={3} />
+			</div>
 
-        <!-- Alpha Slider -->
-        <AnimatedSlider
-          bind:value={alpha}
-          min={0}
-          max={1}
-          step={0.1}
-          label="Algorithm Balance (α)"
-        />
+			<div class="field">
+				<div class="field-head">
+					<span class="field-no">03</span>
+					<label for="alpha">What should lead</label>
+				</div>
+				<p class="readout-note blend tabular">{blend(alpha)}</p>
+				<RangeField
+					id="alpha"
+					bind:value={alpha}
+					min={0}
+					max={1}
+					step={0.1}
+					valueText={blend(alpha)}
+					startLabel="Players near my rating"
+					endLabel="Similar to my picks"
+				/>
+			</div>
 
-        <div class="glass p-3 rounded-lg text-xs text-white/50 space-y-0.5">
-          <div><span class="text-white/70">α = 1:</span> Content-based</div>
-          <div><span class="text-white/70">α = 0:</span> Collaborative</div>
-          <div><span class="text-white/70">α = 0.5:</span> Balanced</div>
-        </div>
+			<button class="submit" type="submit" disabled={isLoading || favoriteOpenings.length === 0}>
+				{#if isLoading}
+					<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+					Reading the games
+				{:else}
+					Find openings
+					<svg width="18" height="12" viewBox="0 0 18 12" aria-hidden="true"
+						><path d="M0 6h16M11 1l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" /></svg
+					>
+				{/if}
+			</button>
+			{#if favoriteOpenings.length === 0}
+				<p class="submit-hint">Choose at least one opening to continue.</p>
+			{/if}
+		</form>
 
-        <!-- Submit Button -->
-        <button
-          on:click={handleSubmit}
-          disabled={isLoading || favoriteOpenings.length === 0}
-          class="glass-button w-full py-3.5 px-6 rounded-xl text-white font-semibold
-                 disabled:opacity-40 disabled:cursor-not-allowed
-                 flex items-center justify-center gap-2"
-        >
-          {#if isLoading}
-            <div class="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-            Analyzing...
-          {:else}
-            <TrendingUp class="w-5 h-5" />
-            Get Recommendations
-          {/if}
-        </button>
-      </div>
-    </div>
+		<section class="results" aria-labelledby="results-title" aria-busy={isLoading}>
+			<div class="results-head">
+				<h2 id="results-title">Recommendations</h2>
+				{#if hasSearched && !isLoading && results.length}
+					<p class="kicker">
+						For {lastQuery.rating} · after {lastQuery.openings.join(', ')}
+					</p>
+				{/if}
+			</div>
 
-    <!-- Results Section (Below Preferences) -->
-    <div in:fly={{ y: 20, duration: 600, delay: 200 }}>
-      {#if isLoading}
-        <!-- Loading State -->
-        <div class="space-y-4">
-          {#each Array(5) as _, i}
-            <div
-              in:fade={{ delay: i * 80 }}
-              class="h-40 glass rounded-xl animate-pulse"
-            ></div>
-          {/each}
-        </div>
-      {:else if results.length > 0}
-        <!-- Results -->
-        <div class="space-y-4">
-          <div class="flex items-center gap-2 mb-4 pb-3 border-b border-white/10">
-            <TrendingUp class="w-5 h-5 text-primary-400" />
-            <h2 class="text-xl font-semibold text-white">
-              Top Matches
-            </h2>
-          </div>
+			<p class="sr-only" aria-live="polite">
+				{#if isLoading}Loading recommendations{:else if results.length}{results.length} recommendations ready{/if}
+			</p>
 
-          {#each results as result, i (result.opening_name)}
-            <ResultCard {result} index={i} />
-          {/each}
-        </div>
-      {:else if hasSearched}
-        <!-- No Results -->
-        <div
-          in:fade
-          class="glass-card rounded-xl p-12 text-center"
-        >
-          <div class="text-4xl mb-3 opacity-50">🤔</div>
-          <p class="text-white/60">
-            No recommendations found
-          </p>
-        </div>
-      {:else}
-        <!-- Empty State -->
-        <div class="glass-card rounded-xl p-16 text-center">
-          <div class="text-6xl mb-4 opacity-40">♟️</div>
-          <h3 class="text-xl font-semibold text-white mb-2">
-            Ready to Discover
-          </h3>
-          <p class="text-white/50">
-            Fill in your preferences to get started
-          </p>
-        </div>
-      {/if}
-    </div>
-  </div>
+			{#if isLoading}
+				<ol class="skeleton" aria-hidden="true">
+					{#each Array(5) as _, i}
+						<li style="animation-delay: {i * 90}ms">
+							<span class="sk sk-rank"></span>
+							<span class="sk-lines">
+								<span class="sk" style="width: 30%"></span>
+								<span class="sk sk-title" style="width: {70 - i * 6}%"></span>
+								<span class="sk" style="width: 45%"></span>
+							</span>
+						</li>
+					{/each}
+				</ol>
+			{:else if errorMessage}
+				<div class="notice">
+					<p class="notice-title">The server didn’t answer.</p>
+					<p>It may be waking up or briefly offline. Your choices are still here, so just try again.</p>
+					<button type="button" class="link-button" on:click={handleSubmit}>Try again</button>
+				</div>
+			{:else if results.length > 0}
+				<div class="list">
+					{#each results as result, i (result.opening_name)}
+						<ResultCard {result} index={i} />
+					{/each}
+				</div>
+				<p class="list-foot">Open a line to see the position, how it scores in the dataset, and why it was picked.</p>
+			{:else if hasSearched}
+				<div class="notice">
+					<p class="notice-title">Nothing close enough.</p>
+					<p>Try a different opening, or move the slider toward players near your rating.</p>
+				</div>
+			{:else}
+				<div class="empty">
+					<div class="empty-board">
+						<ChessBoard fen={START_FEN} label="Starting position" />
+					</div>
+					<div class="empty-text">
+						<p class="empty-title">Every game starts here.</p>
+						<p>
+							Set your rating, add one to three openings you play, and press
+							<em>Find openings</em>. Five suggestions will appear in this column.
+						</p>
+					</div>
+				</div>
+			{/if}
+		</section>
+	</main>
 
-  <!-- How It Works Section -->
-  <section class="container mx-auto px-4 max-w-4xl mt-16 mb-12">
-    <h2 class="text-2xl font-bold text-white text-center mb-8">How It Works</h2>
-    <div class="grid md:grid-cols-3 gap-6">
-      <div class="glass-card rounded-xl p-6 text-center">
-        <div class="text-3xl mb-3">🎯</div>
-        <h3 class="font-semibold text-white mb-2">Set Your Rating</h3>
-        <p class="text-sm text-white/60">Enter your ELO rating to get openings matched to your skill level.</p>
-      </div>
-      <div class="glass-card rounded-xl p-6 text-center">
-        <div class="text-3xl mb-3">♟️</div>
-        <h3 class="font-semibold text-white mb-2">Pick Favorites</h3>
-        <p class="text-sm text-white/60">Select up to 3 openings you already enjoy playing.</p>
-      </div>
-      <div class="glass-card rounded-xl p-6 text-center">
-        <div class="text-3xl mb-3">✨</div>
-        <h3 class="font-semibold text-white mb-2">Get Recommendations</h3>
-        <p class="text-sm text-white/60">Discover new openings tailored to your style and preferences.</p>
-      </div>
-    </div>
-  </section>
+	<section id="how" class="how">
+		<h2>How the recommendations work</h2>
+		<ol class="how-list">
+			<li>
+				<span class="how-no">i.</span>
+				<h3>Similar to your picks</h3>
+				<p>
+					Openings are compared with the ones you chose using TF-IDF similarity, so lines that
+					share structure and family with your repertoire rank higher.
+				</p>
+			</li>
+			<li>
+				<span class="how-no">ii.</span>
+				<h3>Played near your rating</h3>
+				<p>
+					A matrix-factorisation model learned what about 15,600 Lichess players actually chose.
+					Players closest to your rating count the most.
+				</p>
+			</li>
+			<li>
+				<span class="how-no">iii.</span>
+				<h3>Blended by you</h3>
+				<p>
+					The third slider sets the mix. All the way left trusts players near your rating, all the
+					way right trusts similarity to your picks.
+				</p>
+			</li>
+		</ol>
+	</section>
 
-  <!-- Footer -->
-  <footer class="border-t border-white/10 mt-auto">
-    <div class="container mx-auto px-4 py-8">
-      <!-- Main footer row with grid for proper centering -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-center text-center">
-        <!-- Left: Brand -->
-        <div class="md:text-left">
-          <p class="text-white/80 font-semibold">ChessRecs NextGen</p>
-          <p class="text-sm text-white/50">Built with Hybrid Recommendation System</p>
-        </div>
-        
-        <!-- Center: Tech Stack + GitHub -->
-        <div class="flex items-center justify-center gap-3">
-          <div class="flex items-center gap-2">
-            <span class="px-2 py-1 glass rounded text-xs text-white/60">Svelte</span>
-            <span class="px-2 py-1 glass rounded text-xs text-white/60">Rust</span>
-            <span class="px-2 py-1 glass rounded text-xs text-white/60">Python</span>
-          </div>
-          <a 
-            href="https://github.com/fakhrizamaris/chess-recs-svelte" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            class="px-3 py-1.5 glass rounded-lg text-xs text-white/70 hover:text-white hover:bg-white/10 transition-all flex items-center gap-1.5"
-            title="View on GitHub"
-          >
-            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-            </svg>
-            GitHub
-          </a>
-        </div>
-        
-        <!-- Right: Copyright -->
-        <p class="text-xs text-white/40 md:text-right">
-          © {new Date().getFullYear()} All rights reserved
-        </p>
-      </div>
-      
-      <!-- Dataset Credit -->
-      <div class="mt-6 pt-4 border-t border-white/5 text-center">
-        <p class="text-xs text-white/30">
-          Dataset: <a 
-            href="https://www.kaggle.com/datasets/datasnaek/chess" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            class="text-primary-400/70 hover:text-primary-400 underline underline-offset-2 transition-colors"
-          >Chess Game Dataset (Lichess)</a> on Kaggle
-        </p>
-      </div>
-    </div>
-  </footer>
+	<footer class="footer">
+		<span class="brand small"><Logo size={18} /><span>ChessRecs</span></span>
+		<p>
+			Data from the
+			<a href="https://www.kaggle.com/datasets/datasnaek/chess" target="_blank" rel="noopener noreferrer"
+				>Lichess games dataset</a
+			>
+			on Kaggle. Win rates reflect that sample, not all of chess.
+		</p>
+		<a href="https://github.com/fakhrizamaris/chess-recs-svelte" target="_blank" rel="noopener noreferrer">GitHub</a>
+	</footer>
 </div>
+
+<style>
+	.page {
+		position: relative;
+		z-index: 1;
+		max-width: 1200px;
+		margin: 0 auto;
+		padding: 0 clamp(1rem, 4vw, 3rem);
+	}
+
+	/* ---------- Masthead ---------- */
+	.masthead {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 1.25rem 0;
+		border-bottom: 1px solid var(--ink);
+	}
+	.brand {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.625rem;
+		text-decoration: none;
+		color: var(--ink);
+	}
+	.wordmark {
+		font-family: var(--font-display);
+		font-size: 1.375rem;
+		letter-spacing: -0.01em;
+	}
+	.nav {
+		display: flex;
+		align-items: center;
+		gap: 1.5rem;
+		font-size: 0.9375rem;
+	}
+	.nav a {
+		text-decoration: none;
+		color: var(--ink-2);
+	}
+	.nav a:hover {
+		color: var(--ink);
+		text-decoration: underline;
+		text-underline-offset: 4px;
+	}
+	.status {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.status i {
+		width: 7px;
+		height: 7px;
+		background: var(--rule-strong);
+	}
+	.status[data-status='online'] i {
+		background: var(--ink);
+	}
+	.status[data-status='offline'] {
+		color: var(--accent);
+	}
+	.status[data-status='offline'] i {
+		background: var(--accent);
+	}
+
+	/* ---------- Hero ---------- */
+	.hero {
+		padding: clamp(3rem, 8vw, 6.5rem) 0 clamp(2.5rem, 6vw, 4.5rem);
+		max-width: 62rem;
+	}
+	h1 {
+		margin: 1rem 0 1.5rem;
+		font-family: var(--font-display);
+		font-weight: 400;
+		font-size: clamp(2.5rem, 6.4vw, 5.25rem);
+		line-height: 1.02;
+		letter-spacing: -0.02em;
+		text-wrap: balance;
+	}
+	.lede {
+		max-width: 36rem;
+		margin: 0;
+		font-size: clamp(1.0625rem, 1.6vw, 1.25rem);
+		line-height: 1.55;
+		color: var(--ink-2);
+	}
+
+	/* ---------- Workspace ---------- */
+	.workspace {
+		display: grid;
+		grid-template-columns: minmax(0, 400px) minmax(0, 1fr);
+		gap: clamp(2rem, 5vw, 4.5rem);
+		align-items: start;
+		padding-bottom: 5rem;
+	}
+
+	.sheet {
+		position: sticky;
+		top: 1.5rem;
+		display: grid;
+		gap: 2rem;
+		padding: 1.75rem;
+		background: var(--surface);
+		border: 1px solid var(--ink);
+		box-shadow: 6px 6px 0 var(--ink);
+	}
+
+	.field {
+		display: grid;
+		gap: 0.875rem;
+	}
+	.field + .field {
+		padding-top: 1.75rem;
+		border-top: 1px solid var(--rule);
+	}
+	.field-head {
+		display: flex;
+		align-items: baseline;
+		gap: 0.75rem;
+	}
+	.field-no {
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		color: var(--accent);
+	}
+	label {
+		font-weight: 600;
+		font-size: 1rem;
+	}
+
+	.readout {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 1rem;
+	}
+	.readout-value {
+		font-family: var(--font-mono);
+		font-size: 2.75rem;
+		font-weight: 500;
+		line-height: 1;
+		letter-spacing: -0.03em;
+	}
+	.readout-note {
+		margin: 0;
+		font-size: 0.875rem;
+		color: var(--ink-2);
+	}
+	.blend {
+		font-family: var(--font-mono);
+		font-size: 0.8125rem;
+	}
+
+	.submit {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		width: 100%;
+		padding: 1rem 1.25rem;
+		background: var(--ink);
+		color: var(--paper);
+		border: 1px solid var(--ink);
+		border-radius: var(--radius);
+		font: inherit;
+		font-weight: 600;
+		font-size: 1rem;
+		cursor: pointer;
+		transition: background-color 0.15s, transform 0.15s var(--ease), box-shadow 0.15s;
+	}
+	.submit:hover:not(:disabled) {
+		background: var(--accent);
+		border-color: var(--accent);
+		color: var(--on-accent);
+	}
+	.submit:hover:not(:disabled) svg {
+		transform: translateX(3px);
+	}
+	.submit svg {
+		transition: transform 0.2s var(--ease);
+	}
+	.submit:active:not(:disabled) {
+		transform: translate(1px, 1px);
+	}
+	.submit:disabled {
+		cursor: not-allowed;
+		background: transparent;
+		color: var(--ink-3);
+		border-color: var(--rule-strong);
+	}
+	.submit-hint {
+		margin: -1.25rem 0 0;
+		font-size: 0.8125rem;
+		color: var(--ink-3);
+		text-align: center;
+	}
+
+	.dots {
+		display: inline-flex;
+		gap: 4px;
+	}
+	.dots i {
+		width: 6px;
+		height: 6px;
+		background: currentColor;
+		animation: blink 1s infinite;
+	}
+	.dots i:nth-child(2) {
+		animation-delay: 0.15s;
+	}
+	.dots i:nth-child(3) {
+		animation-delay: 0.3s;
+	}
+	@keyframes blink {
+		0%,
+		100% {
+			opacity: 0.25;
+		}
+		50% {
+			opacity: 1;
+		}
+	}
+
+	/* ---------- Results ---------- */
+	.results {
+		min-width: 0;
+	}
+	.results-head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.5rem 1.5rem;
+		padding-bottom: 1rem;
+		border-bottom: 1px solid var(--ink);
+	}
+	h2 {
+		margin: 0;
+		font-family: var(--font-display);
+		font-weight: 400;
+		font-size: 1.75rem;
+		line-height: 1.15;
+	}
+	.results-head .kicker {
+		margin: 0;
+		max-width: 100%;
+		overflow-wrap: anywhere;
+	}
+
+	.list :global(.entry:first-child) {
+		border-top: 0;
+	}
+	.list-foot {
+		margin: 0;
+		padding-top: 1rem;
+		border-top: 1px solid var(--rule);
+		font-size: 0.8125rem;
+		color: var(--ink-3);
+	}
+
+	.empty {
+		display: grid;
+		grid-template-columns: minmax(0, 240px) 1fr;
+		gap: 2rem;
+		align-items: center;
+		padding: 2.5rem 0;
+	}
+	.empty-board {
+		opacity: 0.9;
+	}
+	.empty-title,
+	.notice-title {
+		margin: 0 0 0.5rem;
+		font-family: var(--font-display);
+		font-size: 1.5rem;
+		line-height: 1.2;
+		color: var(--ink);
+	}
+	.empty-text p:last-child,
+	.notice p {
+		margin: 0;
+		color: var(--ink-2);
+		max-width: 28rem;
+	}
+	.empty em {
+		font-style: normal;
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.notice {
+		padding: 2.5rem 0;
+	}
+	.notice p + p {
+		margin-top: 0.25rem;
+	}
+	.link-button {
+		margin-top: 1rem;
+		padding: 0;
+		border: 0;
+		background: none;
+		font: inherit;
+		font-weight: 600;
+		color: var(--accent);
+		text-decoration: underline;
+		text-underline-offset: 4px;
+		cursor: pointer;
+	}
+
+	.skeleton {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.skeleton li {
+		display: grid;
+		grid-template-columns: 3.25rem 1fr;
+		gap: 1.25rem;
+		padding: 1.5rem 0.25rem;
+		border-bottom: 1px solid var(--rule);
+		animation: rise 0.4s var(--ease) both;
+	}
+	.sk-lines {
+		display: grid;
+		gap: 0.625rem;
+	}
+	.sk {
+		display: block;
+		height: 10px;
+		background: var(--rule);
+		animation: pulse 1.4s ease-in-out infinite;
+	}
+	.sk-rank {
+		width: 2.25rem;
+		height: 2.25rem;
+	}
+	.sk-title {
+		height: 18px;
+	}
+	@keyframes pulse {
+		50% {
+			opacity: 0.45;
+		}
+	}
+
+	/* ---------- How it works ---------- */
+	.how {
+		padding: 4rem 0;
+		border-top: 1px solid var(--ink);
+	}
+	.how-list {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: clamp(1.5rem, 4vw, 3rem);
+		margin: 2.5rem 0 0;
+		padding: 0;
+		list-style: none;
+	}
+	.how-list li {
+		padding-top: 1rem;
+		border-top: 1px solid var(--rule);
+	}
+	.how-no {
+		font-family: var(--font-display);
+		font-size: 1.25rem;
+		color: var(--accent);
+	}
+	h3 {
+		margin: 0.5rem 0;
+		font-size: 1.0625rem;
+		font-weight: 600;
+	}
+	.how-list p {
+		margin: 0;
+		color: var(--ink-2);
+		font-size: 0.9375rem;
+	}
+
+	/* ---------- Footer ---------- */
+	.footer {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem 2rem;
+		padding: 1.5rem 0 2.5rem;
+		border-top: 1px solid var(--ink);
+		font-size: 0.8125rem;
+		color: var(--ink-3);
+	}
+	.footer p {
+		margin: 0;
+		flex: 1 1 22rem;
+	}
+	.footer a {
+		color: var(--ink-2);
+		text-underline-offset: 3px;
+	}
+	.brand.small {
+		font-family: var(--font-display);
+		font-size: 1rem;
+	}
+
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip: rect(0 0 0 0);
+		white-space: nowrap;
+	}
+
+	/* ---------- Responsive ---------- */
+	@media (max-width: 900px) {
+		.workspace {
+			grid-template-columns: 1fr;
+		}
+		.sheet {
+			position: static;
+		}
+		.how-list {
+			grid-template-columns: 1fr;
+		}
+	}
+
+	@media (max-width: 560px) {
+		.nav a[href='#how'] {
+			display: none;
+		}
+		.nav {
+			gap: 1rem;
+		}
+		.sheet {
+			padding: 1.25rem;
+			box-shadow: 4px 4px 0 var(--ink);
+		}
+		.empty {
+			grid-template-columns: 1fr;
+			gap: 1.5rem;
+		}
+		.empty-board {
+			max-width: 220px;
+		}
+	}
+</style>
